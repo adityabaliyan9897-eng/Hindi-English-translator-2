@@ -1,1 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hindi ↔ English Translator</title>
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<!-- Tesseract -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: radial-gradient(circle at top, #1e3c72, #0f2027);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+}
+
+.app {
+  max-width: 900px;
+  width: 100%;
+  padding: 40px 20px;
+}
+
+h1 {
+  color: #fff;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #c7d2ff;
+  margin-bottom: 35px;
+}
+
+.card, .output {
+  background: rgba(255,255,255,0.95);
+  border-radius: 18px;
+  padding: 25px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+}
+
+label {
+  display: block;
+  margin-top: 18px;
+  font-weight: 600;
+}
+
+input, select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+}
+
+button {
+  width: 100%;
+  margin-top: 22px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: bold;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg,#ff512f,#dd2476);
+}
+
+.output {
+  margin-top: 35px;
+}
+
+textarea {
+  width: 100%;
+  height: 320px;
+  margin-top: 12px;
+  padding: 14px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: 1px solid #ccc;
+}
+
+.download {
+  background: linear-gradient(135deg,#11998e,#38ef7d);
+  margin-top: 18px;
+}
+
+.camera-box {
+  margin-top: 20px;
+  display: none;
+}
+
+video {
+  width: 100%;
+  border-radius: 14px;
+}
+
+footer {
+  margin-top: 30px;
+  text-align: center;
+  color: #b9c4ff;
+  font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<h1>📄 Hindi ↔ English Translator</h1>
+<p class="subtitle">PDF • Image • Live Camera • Free</p>
+
+<div class="card">
+  <label>Upload PDF or Image</label>
+  <input type="file" id="file">
+
+  <label>Translation Direction</label>
+  <select id="direction">
+    <option value="hi-en">Hindi → English</option>
+    <option value="en-hi">English → Hindi</option>
+  </select>
+
+  <button onclick="processFile()">Translate File</button>
+
+  <hr style="margin:25px 0">
+
+  <button onclick="openCamera()">📸 Use Live Camera</button>
+
+  <div class="camera-box" id="cameraBox">
+    <video id="video" autoplay playsinline></video>
+    <button onclick="capturePhoto()">📷 Capture Photo</button>
+    <canvas id="canvas" style="display:none;"></canvas>
+  </div>
+</div>
+
+<div class="output">
+  <h3>Translated Text</h3>
+  <textarea id="translated" placeholder="Translated text will appear here..."></textarea>
+  <button class="download" onclick="downloadPDF()">Download Translated PDF</button>
+</div>
+
+<footer>
+  Runs fully in browser • Shareable link • No install
+</footer>
+
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// -------- FILE PROCESS --------
+async function processFile() {
+  const file = document.getElementById("file").files[0];
+  if (!file) return alert("Please select a file");
+
+  document.getElementById("translated").value = "Processing...";
+
+  let text = "";
+  if (file.type === "application/pdf") {
+    text = await extractPDF(file);
+  } else {
+    text = await extractImage(file);
+  }
+
+  await translateAndShow(text);
+}
+
+// -------- PDF --------
+async function extractPDF(file) {
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument(buffer).promise;
+  let text = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    content.items
+      .sort((a,b) => b.transform[5] - a.transform[5])
+      .forEach(item => text += item.str + " ");
+    text += "\n\n";
+  }
+  return text;
+}
+
+// -------- OCR --------
+async function extractImage(file) {
+  const result = await Tesseract.recognize(file, "hin+eng");
+  return result.data.text;
+}
+
+// -------- TRANSLATE --------
+async function translateAndShow(text) {
+  const dir = document.getElementById("direction").value;
+  const source = dir === "hi-en" ? "hi" : "en";
+  const target = dir === "hi-en" ? "en" : "hi";
+
+  const url =
+    "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" +
+    source + "&tl=" + target + "&dt=t&q=" + encodeURIComponent(text);
+
+  const res = await fetch(url);
+  const data = await res.json();
+  const translated = data[0].map(x => x[0]).join("");
+
+  document.getElementById("translated").value = translated;
+}
+
+// -------- CAMERA --------
+let stream;
+async function openCamera() {
+  document.getElementById("cameraBox").style.display = "block";
+  stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  document.getElementById("video").srcObject = stream;
+}
+
+async function capturePhoto() {
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+
+  stream.getTracks().forEach(t => t.stop());
+
+  document.getElementById("translated").value = "Processing captured image...";
+
+  const blob = await new Promise(r => canvas.toBlob(r,"image/png"));
+  const text = await extractImage(blob);
+  await translateAndShow(text);
+}
+
+// -------- PDF OUTPUT --------
+function downloadPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const text = document.getElementById("translated").value;
+  const lines = doc.splitTextToSize(text, 180);
+
+  let y = 10;
+  lines.forEach(line => {
+    if (y > 280) {
+      doc.addPage();
+      y = 10;
+    }
+    doc.text(line, 10, y);
+    y += 7;
+  });
+
+  doc.save("translated.pdf");
+}
+</script>
+</body>
+</html>
 
